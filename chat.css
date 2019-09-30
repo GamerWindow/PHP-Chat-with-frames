@@ -1,0 +1,28 @@
+body,td {
+    font-family: Verdana;
+    font-size: 9pt;
+    background-color: #d0dce0;
+    color:#00008b;
+}
+
+ul {
+    list-style-type: none;
+}
+
+a:link {
+    font-family: Verdana;
+    font-size: 9pt;
+    color: #0000ff;
+}
+
+a:visited {
+    font-family: Verdana;
+    font-size: 9pt;
+    color: #0000ff;
+}
+
+a:hover {
+    font-family: Verdana;
+    font-size: 9pt;
+    color: #ff0000;
+}
