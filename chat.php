@@ -2,7 +2,7 @@
 /*
  * Einfaches Chat-System in einem HTML-Fenster
  *
- * Chat-Anwendung mit Speicherung des Chats in einer .txt datei und
+ * Chat-Anwendung mit Speicherung des Chats in einer Datenbank "chat" - Tabelle "message" und
  * Adminbereich zur Statistik ausgabe und löschen des Chat Inhalts
  */
 
@@ -17,43 +17,60 @@ include "error.inc.php";
 
 // Business-Logik
 
+class DbTableMessage
+{
+    public $datum;
+    public $name;
+    public $inhalt;
+
+    public function outputAsHtmlTableRow()
+    {
+
+        echo '<tr>';
+        echo "<td>" . $this->datum . '</td>';
+        echo "<td>" . $this->name . '</td>';
+        echo "<td>" . $this->inhalt . '</td>';
+        echo '</tr>';
+    }
+}
+
 /*
  * Die Klasse Chat bildet einen Chatroom ab.
  * Sie besteht aus Zeitlich sortierten Messages.
  */
+
 class Chat
 {
-    // Speicherort Chatinhalt
-    const CHAT_DATEI = "chat_text.txt";
+    // Datenbank-Verbindung
+    public $db;
+    public function __construct($dsn, $username, $pwd)
+    {
+        try {
+            $this->db = new PDO($dsn, $username, $pwd);
+            $this->db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        } catch (PDOException $e) {
+            throw new Error("Konnte Verbindung nicht heerstellen " . $e->getMessage());
+        }
+    }
 
     // Funktion zur ausgabe des Chats in eine Tabelle
     public function ausgabe()
     {
-        if (!file_exists(self::CHAT_DATEI)) {
-            fopen(self::CHAT_DATEI, "w");
-        }
-        $fp = @fopen(self::CHAT_DATEI, "r");
-        if ($fp) {
+        // Tabellenkopf des Chats
+        echo "<table><tr><td><b>Zeit</b></td>" .
+            "<td><b>Name</b></td>" .
+            "<td><b>Beitrag</b></td></tr>";
 
-            // Tabellenkopf des Chats
-            echo "<table><tr><td><b>Zeit</b></td>" .
-                "<td><b>Name</b></td>" .
-                "<td><b>Beitrag</b></td></tr>";
+        // Alle Zeilen lesen und ausgeben
 
-            // Alle Zeilen lesen und ausgeben
-            echo '<tr>';
-            while (!feof($fp)) {
-                $tabzeile = explode("|", fgets($fp, 200));
-                foreach ($tabzeile as $cell) {
-                    echo '<td>';
-                    echo $cell;
-                    echo '</td>';
-                }
-                echo '</tr>';
-            }
+        $stmt = $this->db->prepare("SELECT * FROM message ORDER BY datum");
+        $stmt->execute();
+        $messages = $stmt->fetchALL(PDO::FETCH_CLASS, "DbTableMessage");
+        foreach ($messages as $message) {
+
+            $message->outputAsHtmlTableRow();
         }
         echo "</table>";
-        fclose($fp);
 
         // Button um die Chat Ausgabe neu zu Laden
         echo '<form action="chat.php">
@@ -71,58 +88,55 @@ class Chat
         </script>';
     }
 
-    // Speichert Nachricht, Namen, Datum und Uhrzeit in .txt Datei am Ende 'a'
+    // Speichert Nachricht, Namen, Datum und Uhrzeit in Datenbank
     public function neueNachrichtSpeichern($message)
     {
-        $fp = @fopen(self::CHAT_DATEI, "a");
-        if ($fp) {
-            $jetzt = date("d.m.y H:i:s");
-            if ($message->name != "" && $message->inhalt != "") {
-                $tabzeile = $jetzt . "|" . str_replace("|", "-", $message->name)
-                . "|" . str_replace("|", "-", $message->inhalt);
-                fputs($fp, $tabzeile . "\n");
-                echo "Nachricht gesendet";
+        if ($message->name != "" && $message->inhalt != "") {
+            $sql = "INSERT INTO message
+                         (name, inhalt)
+                         VALUES ('" . $_POST['nick'] . "', '" . $_POST['beitrag'] . "')";
+            $betroffeneZeilen = $this->db->exec($sql);
+            echo "Nachricht gesendet";
 
-            } else {
-                echo "Bitte fülle beide Felder aus!";
-            }
+        } else {
+            echo "Bitte fülle beide Felder aus!";
         }
-        fclose($fp);
     }
 
-    // Löscht den inhalt der .txt Datei
+    // Löscht den Inhalt der Datenbank
     public function chatLeeren()
     {
-        file_put_contents(self::CHAT_DATEI, "");
+        $sql = "DELETE FROM message";
+        $daten = $this->db->exec($sql);
         echo "Und Zack! Chat wurde gelöscht!";
     }
 
     // Ausgabe der Statistiken
     public function ausgabeStatistik()
     {
-        if (!file_exists(self::CHAT_DATEI)) {
-            fopen(self::CHAT_DATEI, "w");
-        }
-        $fp = fopen(self::CHAT_DATEI, "r");
+        $sql = "SELECT datum FROM message WHERE inhalt IS NOT NULL";
+        $sqlanzahl = "SELECT COUNT(datum) FROM message WHERE inhalt IS NOT NULL";
+        $ergebnisanzahl = $this->db->query($sqlanzahl);
+        $anzahl = $ergebnisanzahl->fetchColumn();
+        echo "<p>Anzahl der Nachrichten: $anzahl</p>\n";
 
-        while (!feof($fp)) {
-            $zeile[] = fgets($fp, 200);
-        }
+        $max = "SELECT MAX(datum) FROM message";
+        $neu = $this->db->query($max);
+        $min = "SELECT MIN(datum) FROM message";
+        $alt = $this->db->query($min);
 
-        $lines = COUNT(FILE(self::CHAT_DATEI));
-        echo "Der Chat hat bereits $lines Nachricht/en<br />";
-        echo "Aktuellste Message: " . max($zeile) . "<br />";
-        echo "Älteste Message: " . min($zeile) . "<br />";
-        fclose($fp);
+        echo "Neueste Message:<br />" . $neu->fetchColumn() . "<br /><br />";
+        echo "Älteste Message:<br />" . $alt->fetchColumn();
     }
 
     /**
      * html-ausgabe für admin-frame
-     * formular mit 2 buttons fertig
+     * form mit 2 buttons
      **/
     public function ausgabeAdministrationsFrame()
     {
-        echo '<h3>Administrations Bereich</h3>' .
+        echo
+            '<h3>Administrations Bereich</h3>' .
             '<form action="chat.php">
             <input type="hidden" name="route" value="stats" />
             <button type="submit" >Statistik<br />abrufen</button>
@@ -131,7 +145,6 @@ class Chat
             <input type="hidden" name="route" value="loeschen" />
             <button type="submit" >Chatverlauf <br />Löschen</button>
             </form>';
-
     }
 }
 
@@ -161,8 +174,6 @@ class Message
                     <td><textarea cols="50" rows="2" name="beitrag"></textarea>
                 </td></tr><tr><td>
                     <input type="submit" name="absch" value="Abschicken" /></td><tr>
-
-
             </table>
         </form>';
         return false;
@@ -171,7 +182,7 @@ class Message
 
 //------Applikation-----------------------------
 
-$chat = new Chat();
+$chat = new Chat("mysql:host=localhost;dbname=chat;charset=UTF8", "admin", "password");
 
 // Routing
 
@@ -199,7 +210,7 @@ switch ($_GET["route"]) {
         $chat->ausgabeAdministrationsFrame();
         break;
     default:
-        echo "error!";
+        echo 'Error! <br /> Please go to "chat.html"! Thank you :D';
 }
 ?>
 </body>
